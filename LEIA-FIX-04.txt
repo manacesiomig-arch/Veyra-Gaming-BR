@@ -1,0 +1,10 @@
+FIX 04 - RIFE / GTX 1660 Ti
+1. Extraia a atualizacao na raiz do repositorio de codigo-fonte (nao na pasta do EXE).
+2. GitHub Desktop: commit FIX 04 - Runtime RIFE e Push origin.
+3. GitHub Actions: RIFE - GTX 1660 Ti (sem recompilar) > Run workflow > main.
+4. Abra o run verde, Artifacts > Veyra-RIFE-GTX-1660-Ti-runtime.
+5. Feche o Veyra e extraia o artefato ao lado de veyra_qml_ui.exe, mesclando runtime.
+6. Reinicie e selecione RIFE em Interpolacao. Comece em SDR, 1080p, 2X.
+Nao substitua o EXE nem execute o Windows build. Este workflow independente baixa modelos
+vs-mlrt e NuGet oficiais, usa o conversor original e valida a interface dos modelos.
+A GPU precisa ser testada no seu notebook. Nao ha garantia de 6X em tempo real.

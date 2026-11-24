@@ -1,0 +1,42 @@
+name: RIFE - GTX 1660 Ti (sem recompilar)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Download and convert RIFE models and stage DirectML
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+          tools/rife_models/prepare-rife-runtime.ps1 -OutputDirectory "$env:RUNNER_TEMP/veyra-rife-package/runtime/rife"
+          $stage = "$env:RUNNER_TEMP/veyra-rife-package"
+          Copy-Item THIRD_PARTY_NOTICES.md "$stage/RIFE-THIRD-PARTY-NOTICES.md"
+          Copy-Item LICENSE "$stage/RIFE-VEYRA-LICENSE.txt"
+          Copy-Item tools/rife_models/make_rife_models.py "$stage/RIFE-make_rife_models.py"
+          @'
+          Feche o Veyra. Extraia a pasta runtime deste ZIP junto de veyra_qml_ui.exe.
+          Autorize mesclar pastas e substituir os arquivos RIFE.
+          Abra o Veyra novamente e selecione RIFE na aba Interpolacao, com SDR.
+          O pacote nao contem EXE. Nao exige recompilar o Veyra.
+          '@ | Set-Content -Encoding utf8 "$stage/LEIA-RIFE.txt"
+          Get-ChildItem "$stage/runtime/rife" -File | ForEach-Object {
+            "{0}  {1}" -f (Get-FileHash $_.FullName).Hash.ToLowerInvariant(), $_.Name
+          } | Set-Content -Encoding utf8 "$stage/RIFE-SHA256.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: Veyra-RIFE-GTX-1660-Ti-runtime
+          path: ${{ runner.temp }}/veyra-rife-package/
+          if-no-files-found: error
