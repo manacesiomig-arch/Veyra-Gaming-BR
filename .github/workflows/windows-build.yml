@@ -113,9 +113,11 @@ jobs:
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: C:\vcache
-          key: vcpkg-${{ env.VCPKG_COMMIT }}-${{ env.OVERLAY_HASH }}-v1
+          key: vcpkg-${{ env.VCPKG_COMMIT }}-${{ env.OVERLAY_HASH }}-v2-openssl
+          restore-keys: |
+            vcpkg-${{ env.VCPKG_COMMIT }}-${{ env.OVERLAY_HASH }}-v1
 
-      - name: Build FFmpeg 9.0.1 (slices256, deinterlace, D3D12VA reference pool), dav1d, zlib and libass
+      - name: Build FFmpeg 9.0.1 (slices256, deinterlace, D3D12VA reference pool), dav1d, zlib, libass and OpenSSL
         env:
           VCPKG_BINARY_SOURCES: clear;files,C:\vcache,readwrite
           VCPKG_DISABLE_METRICS: '1'
@@ -124,18 +126,23 @@ jobs:
           # --classic: vcpkg.json in the repo root would otherwise force manifest mode.
           C:\v\vcpkg.exe install --classic --overlay-ports=C:\vcpkg-overlay --clean-after-build `
             'ffmpeg[core,avcodec,avformat,avfilter,swresample,swscale,dav1d,zlib]:x64-windows' `
-            'libass:x64-windows-static'
+            'libass:x64-windows-static' `
+            'openssl:x64-windows'
           $list = C:\v\vcpkg.exe list --classic
           $list | Set-Content -Encoding utf8 C:\vcpkg-list.txt
           $list | Write-Host
           if (-not ($list -match '^ffmpeg:x64-windows')) { throw 'ffmpeg not installed' }
+          if (-not ($list -match '^openssl:x64-windows')) { throw 'OpenSSL not installed' }
+          foreach ($file in 'bin/libcrypto-3-x64.dll', 'bin/libssl-3-x64.dll', 'lib/libcrypto.lib', 'include/openssl/crypto.h') {
+            if (!(Test-Path -LiteralPath (Join-Path C:\v\installed\x64-windows $file) -PathType Leaf)) { throw "OpenSSL file missing: $file" }
+          }
 
       - name: Save vcpkg binary cache
         if: steps.vcpkg-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: C:\vcache
-          key: vcpkg-${{ env.VCPKG_COMMIT }}-${{ env.OVERLAY_HASH }}-v1
+          key: vcpkg-${{ env.VCPKG_COMMIT }}-${{ env.OVERLAY_HASH }}-v2-openssl
 
       - name: Prepare RIFE DirectML headers
         run: scripts/ci/fetch-rife-gaming.ps1 -Root .
@@ -150,6 +157,10 @@ jobs:
             -DVEYRA_FFMPEG_ROOT=C:/v/installed/x64-windows `
             -DVEYRA_LIBASS_ROOT=C:/v/installed/x64-windows-static `
             -DVEYRA_LIBDOVI_ROOT=C:/dovi `
+            -DOPENSSL_ROOT_DIR=C:/v/installed/x64-windows `
+            -DOPENSSL_CRYPTO_LIBRARY=C:/v/installed/x64-windows/lib/libcrypto.lib `
+            -DOPENSSL_INCLUDE_DIR=C:/v/installed/x64-windows/include `
+            -DOPENSSL_USE_STATIC_LIBS=OFF `
             "-DCMAKE_PREFIX_PATH=$env:QT_ROOT_DIR"
 
       - name: Build Veyra executable (no virtual camera installer)
@@ -187,6 +198,17 @@ jobs:
               throw "QML deployment is missing $file"
             }
           }
+          # Keep the same OpenSSL DLLs used by the pinned vcpkg link, app-locally.
+          foreach ($dll in 'libcrypto-3-x64.dll', 'libssl-3-x64.dll') {
+            $source = Join-Path C:\v\installed\x64-windows\bin $dll
+            Copy-Item -LiteralPath $source -Destination $stage -Force
+            $dest = Join-Path $stage $dll
+            if (!(Test-Path -LiteralPath $dest -PathType Leaf)) { throw "Missing runtime: $dll" }
+            if ((Get-FileHash $source).Hash -ne (Get-FileHash $dest).Hash) { throw "Runtime hash mismatch: $dll" }
+          }
+          $imports = dumpbin /DEPENDENTS "$stage\veyra_qml_ui.exe"
+          $imports | Write-Host
+          if (-not ($imports -match 'libcrypto-3-x64\.dll')) { throw 'Unexpected OpenSSL link: libcrypto-3-x64.dll not found in executable imports' }
           Copy-Item "$env:VCToolsRedistDir\x64\Microsoft.VC143.CRT\*.dll" $stage
           foreach ($f in 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'README.md', 'README_EN.md') { Copy-Item $f $stage }
           @'
@@ -198,6 +220,7 @@ jobs:
           Copy-Item licenses\* "$stage\licenses" -Recurse
           Copy-Item C:\v\installed\x64-windows\share\ffmpeg\copyright "$stage\licenses\FFMPEG-COPYRIGHT.txt"
           Copy-Item C:\v\installed\x64-windows\share\dav1d\copyright "$stage\licenses\DAV1D-COPYRIGHT.txt"
+          Copy-Item C:\v\installed\x64-windows\share\openssl\copyright "$stage\licenses\OPENSSL-COPYRIGHT.txt"
           Copy-Item C:\v\installed\x64-windows-static\share\libass\copyright "$stage\licenses\LIBASS-COPYRIGHT.txt"
           Copy-Item (Join-Path $env:DOVI_SOURCE 'LICENSE') "$stage\licenses\LIBDOVI-LICENSE.txt"
           [ordered]@{
