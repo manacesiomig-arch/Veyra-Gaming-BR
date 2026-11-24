@@ -1,6 +1,6 @@
 name: Windows build (reproducible)
 
-# Builds veyra_qml_ui.exe and the virtual camera on a clean GitHub-hosted
+# Builds veyra_qml_ui.exe (without virtual camera installer) on a clean GitHub-hosted
 # runner. Every dependency is fetched from its upstream source at a pinned
 # commit (see scripts/ci/fetch-sdks.ps1); FFmpeg 9.0.1 is built from source by
 # vcpkg at this repository's builtin-baseline with scripts/ffmpeg/*.patch.
@@ -144,6 +144,7 @@ jobs:
         run: |
           cmake --preset x64-release -B C:\b `
             -DVEYRA_BUILD_QML_UI=ON `
+            -DVEYRA_BUILD_VIRTUALCAM_COMPONENTS=OFF `
             -DVEYRA_ENABLE_EXPERIMENTAL_DLSSNR=ON `
             "-DVEYRA_DLSS_SDK_ROOT=$((Resolve-Path third_party_local/nvidia/DLSS_SDK_310.7.0).Path)" `
             -DVEYRA_FFMPEG_ROOT=C:/v/installed/x64-windows `
@@ -151,9 +152,11 @@ jobs:
             -DVEYRA_LIBDOVI_ROOT=C:/dovi `
             "-DCMAKE_PREFIX_PATH=$env:QT_ROOT_DIR"
 
-      - name: Build veyra_qml_ui, virtual camera and shaders
+      - name: Build Veyra executable (no virtual camera installer)
+        run: cmake --build C:\b --parallel --target veyra_qml_ui
+
+      - name: Build shaders
         run: |
-          cmake --build C:\b --parallel --target veyra_qml_ui veyra_virtualcam_components
           $shaders = ninja -C C:\b -t targets all | ForEach-Object { ($_ -split ':')[0] } | Where-Object { $_ -match '^veyra_shader_' } | Sort-Object -Unique
           if ($shaders) { cmake --build C:\b --parallel --target @shaders }
 
@@ -171,11 +174,7 @@ jobs:
             New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null
             Copy-Item $_.FullName $dst
           }
-          # 64-bit module + setup in C:\b\virtualcam, 32-bit module from the x86 ExternalProject.
-          New-Item -ItemType Directory -Force "$stage\virtualcam" | Out-Null
-          foreach ($f in 'virtualcam\veyra-virtualcam64.dll', 'virtualcam\veyra-camera-setup.exe', 'virtualcam-x86\virtualcam\veyra-virtualcam32.dll') {
-            Copy-Item (Join-Path C:\b $f) "$stage\virtualcam"
-          }
+          # Virtual camera DLLs and installer intentionally omitted.
           Copy-Item C:\v\installed\x64-windows\bin\*.dll $stage
           Copy-Item C:\dovi\bin\*.dll $stage
           & "$env:QT_ROOT_DIR\bin\windeployqt.exe" --release --qmldir qml --no-translations `
@@ -192,6 +191,7 @@ jobs:
           foreach ($f in 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'README.md', 'README_EN.md') { Copy-Item $f $stage }
           @'
           Veyra Windows CI build for development testing.
+          Virtual camera installation components are not included in this gaming build.
           The official release packages are on the project's GitHub Releases page.
           DLSS, XeSS and other proprietary GPU runtimes, RIFE models, and optional audio packages are absent. RIFE DirectML DLLs are included; add both ONNX models separately.
           '@ | Set-Content -Encoding utf8 "$stage\CI-BUILD.txt"

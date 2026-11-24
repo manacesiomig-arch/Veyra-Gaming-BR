@@ -28,7 +28,12 @@ if(NOT WIN32)
   add_subdirectory(linux/obs)
   return()
 endif()
-add_subdirectory(src/virtualcam)
+option(VEYRA_BUILD_VIRTUALCAM_COMPONENTS "Build and package virtual camera installation components" ON)
+if(VEYRA_BUILD_VIRTUALCAM_COMPONENTS)
+  add_subdirectory(src/virtualcam)
+else()
+  add_subdirectory(src/virtualcam EXCLUDE_FROM_ALL)
+endif()
 
 # Decode the localized compiler output using the current console code page.
 # CMake needs UTF-8 internally to write rules.ninja; the generator then emits
@@ -1568,7 +1573,9 @@ if(VEYRA_BUILD_QML_UI AND Qt6_FOUND)
   # the log file through the logger.
   add_executable(veyra_qml_ui WIN32 apps/veyra-qml/main.cpp apps/veyra-qml/ProfileInstance.cpp
     src/ui/QmlDataDirectory.cpp src/ui/QmlDiskCache.cpp)
-  add_dependencies(veyra_qml_ui veyra_virtualcam_components)
+  if(VEYRA_BUILD_VIRTUALCAM_COMPONENTS)
+    add_dependencies(veyra_qml_ui veyra_virtualcam_components)
+  endif()
   if(VEYRA_UPDATE_PUBLIC_KEY)
     add_dependencies(veyra_qml_ui veyra_portable_launcher veyra_update_worker)
   endif()
