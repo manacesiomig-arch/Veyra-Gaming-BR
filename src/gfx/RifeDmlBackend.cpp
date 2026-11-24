@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <format>
 #include <mutex>
+#include <iterator>
 #include <unordered_map>
 #include <vector>
 
@@ -26,7 +27,16 @@ namespace veyra::gfx {
 using Microsoft::WRL::ComPtr;
 
 namespace {
-std::filesystem::path runtimeDirectory() { return runtime::applicationRoot() / "runtime" / "rife"; }
+std::filesystem::path runtimeDirectory() {
+    wchar_t executable[32768]{};
+    const DWORD length = GetModuleFileNameW(nullptr, executable, static_cast<DWORD>(std::size(executable)));
+    if (length && length < std::size(executable)) {
+        const auto local = std::filesystem::path(executable).parent_path() / "runtime" / "rife";
+        std::error_code ec;
+        if (std::filesystem::is_directory(local, ec)) return local;
+    }
+    return runtime::applicationRoot() / "runtime" / "rife";
+}
 // 2X takes the full RIFE 4.26; 3X the lite 4.22, which leaves more of the
 // 33 ms of a 30 fps pair for the rest of the graph (RX 9070 XT, 2026-11-22:
 // 11.4 vs 8.9 ms per frame at 1088x1920 fp16).

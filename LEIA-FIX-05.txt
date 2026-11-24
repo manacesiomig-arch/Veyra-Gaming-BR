@@ -1,0 +1,11 @@
+FIX 05 - Veyra Gaming BR / RIFE integrado
+1. Extraia esta atualizacao na raiz do repositorio de codigo-fonte, nao na pasta do EXE.
+2. GitHub Desktop: commit FIX 05 - RIFE integrado; Push origin.
+3. Actions: Windows build (reproducible). O push do workflow inicia uma nova compilacao.
+4. Baixe o artefato Veyra-Gaming-BR-Windows-RIFE-completo da nova execucao verde.
+5. Extraia ambos os ZIPs em uma pasta nova. Abra veyra_qml_ui.exe. Nao misture com a versao anterior.
+6. Em SDR, selecione RIFE e teste 2X primeiro.
+7. Caso nao funcione, execute Diagnosticar-RIFE.cmd ao lado do EXE e envie DIAGNOSTICO-RIFE.txt.
+A atualizacao exige nova compilacao; modelos baixados pelo workflow, nao contidos neste patch.
+O workflow confere modelos, DLLs, shaders e flag real de compilacao. Nao garante desempenho ou inferencia na GTX.
+Para diagnosticar a versao antiga sem compilar, copie os dois arquivos Diagnosticar-RIFE de tools/rife_models para junto do EXE e execute o CMD.

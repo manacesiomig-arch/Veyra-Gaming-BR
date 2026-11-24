@@ -52,6 +52,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Prepare complete RIFE runtime (models and DLLs)
+        run: |
+          tools/rife_models/prepare-rife-runtime.ps1 -OutputDirectory "$env:RUNNER_TEMP/veyra-rife-runtime"
+
       - name: Stage pinned SDK headers and import libraries
         run: |
           if (Test-Path third_party_local) { throw 'third_party_local must not be tracked in Git' }
@@ -144,13 +152,12 @@ jobs:
           path: C:\vcache
           key: vcpkg-${{ env.VCPKG_COMMIT }}-${{ env.OVERLAY_HASH }}-v2-openssl
 
-      - name: Prepare RIFE DirectML headers
-        run: scripts/ci/fetch-rife-gaming.ps1 -Root .
-
       - name: Configure (preset x64-release)
         run: |
           cmake --preset x64-release -B C:\b `
             -DVEYRA_BUILD_QML_UI=ON `
+            -DCMAKE_EXPORT_COMPILE_COMMANDS=ON `
+            "-DVEYRA_ORT_DML_ROOT=$((Resolve-Path deps/ort-dml).Path)" `
             -DVEYRA_BUILD_VIRTUALCAM_COMPONENTS=OFF `
             -DVEYRA_ENABLE_EXPERIMENTAL_DLSSNR=ON `
             "-DVEYRA_DLSS_SDK_ROOT=$((Resolve-Path third_party_local/nvidia/DLSS_SDK_310.7.0).Path)" `
@@ -162,6 +169,15 @@ jobs:
             -DOPENSSL_INCLUDE_DIR=C:/v/installed/x64-windows/include `
             -DOPENSSL_USE_STATIC_LIBS=OFF `
             "-DCMAKE_PREFIX_PATH=$env:QT_ROOT_DIR"
+
+      - name: Verify RIFE backend actually enabled
+        run: |
+          $commands = Get-Content C:\b\compile_commands.json -Raw | ConvertFrom-Json
+          $rife = @($commands | Where-Object { $_.file -match 'RifeDmlBackend\.cpp$' })
+          if ($rife.Count -ne 1 -or $rife[0].command -notmatch 'VEYRA_HAS_RIFE_DML=1') {
+            throw 'RIFE was not enabled by CMake; refusing to build an unavailable backend.'
+          }
+          Write-Host 'RIFE DirectML backend is enabled in the actual compiler command.'
 
       - name: Build Veyra executable (no virtual camera installer)
         run: cmake --build C:\b --parallel --target veyra_qml_ui
@@ -177,13 +193,21 @@ jobs:
           $stage = "C:\out\$name"
           New-Item -ItemType Directory -Force $stage, "$stage\qml", "$stage\licenses" | Out-Null
           Copy-Item C:\b\veyra_qml_ui.exe $stage
-          scripts/ci/fetch-rife-gaming.ps1 -Root . -RuntimeDirectory "$stage\runtime\rife"
+          New-Item -ItemType Directory -Force "$stage\runtime\rife" | Out-Null
+          Copy-Item "$env:RUNNER_TEMP\veyra-rife-runtime\*" "$stage\runtime\rife" -Recurse -Force
+          Copy-Item tools/rife_models/Diagnosticar-RIFE.ps1, tools/rife_models/Diagnosticar-RIFE.cmd $stage
+          Copy-Item tools/rife_models/make_rife_models.py "$stage\licenses\RIFE-make_rife_models.py"
           Copy-Item C:\b\qml\Veyra "$stage\qml\Veyra" -Recurse
           $shaderRoot = (Resolve-Path C:\b\shaders).Path
           Get-ChildItem $shaderRoot -Recurse -Filter *.dxil | ForEach-Object {
             $dst = Join-Path "$stage\shaders" $_.FullName.Substring($shaderRoot.Length + 1)
             New-Item -ItemType Directory -Force (Split-Path $dst) | Out-Null
             Copy-Item $_.FullName $dst
+          }
+          foreach ($required in @('runtime/rife/onnxruntime.dll','runtime/rife/onnxruntime_providers_shared.dll','runtime/rife/DirectML.dll','runtime/rife/rife_v4.26_fp16.onnx','runtime/rife/rife_v4.22_lite_fp16.onnx','shaders/RifePack.dxil','shaders/RifeUnpack.dxil','shaders/RifeShotChange.dxil')) {
+            $file = Join-Path $stage $required
+            if (!(Test-Path -LiteralPath $file -PathType Leaf) -or (Get-Item -LiteralPath $file).Length -eq 0) { throw "Required RIFE file missing: $required" }
+            Write-Host "$required : $((Get-FileHash -LiteralPath $file).Hash)"
           }
           # Virtual camera DLLs and installer intentionally omitted.
           Copy-Item C:\v\installed\x64-windows\bin\*.dll $stage
@@ -215,7 +239,7 @@ jobs:
           Veyra Windows CI build for development testing.
           Virtual camera installation components are not included in this gaming build.
           The official release packages are on the project's GitHub Releases page.
-          DLSS, XeSS and other proprietary GPU runtimes, RIFE models, and optional audio packages are absent. RIFE DirectML DLLs are included; add both ONNX models separately.
+          DLSS, XeSS and other proprietary GPU runtimes and optional audio packages are absent. Both RIFE models and DirectML DLLs are included. GPU performance has not been validated.
           '@ | Set-Content -Encoding utf8 "$stage\CI-BUILD.txt"
           Copy-Item licenses\* "$stage\licenses" -Recurse
           Copy-Item C:\v\installed\x64-windows\share\ffmpeg\copyright "$stage\licenses\FFMPEG-COPYRIGHT.txt"
@@ -228,7 +252,7 @@ jobs:
             msvc = $env:VCToolsVersion; windowsSdk = $env:WindowsSDKVersion; qt = $env:QT_VERSION
             vcpkgCommit = $env:VCPKG_COMMIT; vcpkgPackages = (Get-Content C:\vcpkg-list.txt)
             sdks = (Get-Content C:\sdk-manifest.json -Raw | ConvertFrom-Json)
-            notIncluded = 'Proprietary GPU runtimes (runtime/, runtime_local/), BGM, VB-CABLE package'
+            notIncluded = 'Proprietary GPU runtimes, BGM, VB-CABLE package'; rifeDirectML = $true
           } | ConvertTo-Json -Depth 6 | Set-Content -Encoding utf8 "$stage\BUILD-INFO.json"
           Compress-Archive -Path $stage -DestinationPath "C:\out\$name.zip"
           Get-ChildItem C:\out\*.zip | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName).Hash.ToLowerInvariant(), $_.Name } |
@@ -247,7 +271,7 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: veyra-windows-ci-no-gpu-runtimes
+          name: Veyra-Gaming-BR-Windows-RIFE-completo
           path: |
             C:\out\*.zip
             C:\out\SHA256SUMS.txt
